@@ -1,0 +1,184 @@
+---
+title: "DCC-GARCH(1, 1) for selected ESG Indices & Others"
+author: "Daniel Cupriak"
+date: "20/12/2019"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = F}
+library(tidyverse)
+library(xts)
+library(rmgarch)
+
+options(readr.num_columns = 0) # Ignore readr messages
+"%ni%" <- Negate("%in%") # State a "not in" operator
+options(scipen=999)
+
+calc_dcc_garch <- function(index_list = list(index_1 = "example1", index_2 = "example2")){
+  index_1 = index_list$index_1
+  print(index_1)
+  index_2 = index_list$index_2
+  index_1_df <- read_csv(paste0("data/resampled-properly-W/", index_1, ".csv"))
+  colnames(index_1_df) <- c("week_year", index_1)
+  index_2_df <- read_csv(paste0("data/resampled-properly-W/", index_2, ".csv"))
+  colnames(index_2_df) <- c("week_year", index_2)
+  
+  joined_df <- index_1_df %>%
+    inner_join(index_2_df, by = "week_year")
+  
+  
+  joined_df <- joined_df %>%
+     mutate(!!as.name(index_1) := log(!!as.name(index_1)/lag(!!as.name(index_1))),
+            !!as.name(index_2) := log(!!as.name(index_2)/lag(!!as.name(index_2)))) %>%
+    drop_na() %>%
+    mutate(week = str_extract(week_year, "^\\d{2}"),
+         year = str_extract(week_year, "\\d{4}$")) %>%
+    dplyr::select(-week_year) %>%
+    mutate(week_year = paste0(year, week, "5")) %>%
+    dplyr::select(-week, -year) %>%
+    mutate(week_year = as.Date(week_year, "%Y%U%u")) %>%
+    drop_na()
+   
+  dates <- joined_df$week_year
+  
+  joined_df <<- joined_df
+  
+  joined_ts <- joined_df %>%
+    dplyr::select(-week_year) %>%
+    xts::as.xts(order.by = dates)
+  
+  garch11.spec <- ugarchspec(mean.model = list(armaOrder = c(0,0)), 
+                            variance.model = list(garchOrder = c(1,1),
+                                                  model = "sGARCH"),
+                            distribution.model = "norm")
+  
+  dcc.garch11.spec <- dccspec(uspec = multispec(replicate(2, garch11.spec)),
+                                    dccOrder = c(1,1),
+                                    distribution = "mvnorm")
+  
+  dcc.garch11.fit <- dccfit(spec = dcc.garch11.spec, data = joined_ts)
+
+  print(dcc.garch11.fit)
+  
+  dcc_corr <- as.data.frame(rcor(dcc.garch11.fit)[1,2,])
+  
+  dcc_corr <- dcc_corr %>%
+    bind_cols(date = rownames(dcc_corr)) %>%
+    as_tibble() %>%
+    `colnames<-`(c("dyn_corr", "date")) %>%
+    mutate(date = lubridate::ymd(date))
+  
+  dcc_corr %>%
+    ggplot(aes(x = date, y = dyn_corr)) + 
+    geom_line() +
+    theme_classic() +
+    labs(title = paste0(index_1, " & ", index_2),
+         x = "", y = "Dynamic Conditional Correlation") +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+}
+
+
+
+```
+
+1. Dane zostały zagregowane z dziennych na tygodniowe (Piątek lub inny ostatni dzień danego tygodnia)
+2. Użyto najwcześniejszych dostępnych dat - od 01.10.2012 r.
+
+
+## Europa
+
+### Indeksy ESG
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "STOXX Europe Leaders"))
+calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "STOXX Europe Industry Neutral ESG EUR"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EUR", index_2 = "STOXX Europe Leaders"))
+
+```
+
+### Indeksy ESG & non-ESG
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "STOXX Europe Leaders NE"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EUR", index_2 = "STOXX Europe Leaders NE"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Leaders", index_2 = "STOXX Europe Leaders NE"))
+
+```
+
+### Indeksy ESG & indeksy towarowe
+
+
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "Dow Jones Commodity Index Industrial Metals"))
+calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "Dow Jones Precious Metals Index"))
+calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "Dow Jones Commodity Index Grains"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EUR", index_2 = "Dow Jones Commodity Index Industrial Metals"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EUR", index_2 = "Dow Jones Precious Metals Index"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EUR", index_2 = "Dow Jones Commodity Index Grains"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Leaders", index_2 = "Dow Jones Commodity Index Industrial Metals"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Leaders", index_2 = "Dow Jones Precious Metals Index"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Leaders", index_2 = "Dow Jones Commodity Index Grains"))
+
+```
+
+## USA
+
+### Indeksy ESG
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "DJS US", index_2 = "S&P500 ESG"))
+```
+
+### Indeksy ESG & non-ESG
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "DJS US", index_2 = "S&P500"))
+calc_dcc_garch(index_list = list(index_1 = "S&P500 ESG", index_2 = "S&P500"))
+
+```
+
+### Indeksy ESG & indeksy towarowe
+
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "DJS US", index_2 = "Dow Jones Commodity Index Industrial Metals"))
+calc_dcc_garch(index_list = list(index_1 = "DJS US", index_2 = "Dow Jones Precious Metals Index"))
+calc_dcc_garch(index_list = list(index_1 = "DJS US", index_2 = "Dow Jones Commodity Index Grains"))
+calc_dcc_garch(index_list = list(index_1 = "S&P500 ESG", index_2 = "Dow Jones Commodity Index Industrial Metals"))
+calc_dcc_garch(index_list = list(index_1 = "S&P500 ESG", index_2 = "Dow Jones Precious Metals Index"))
+calc_dcc_garch(index_list = list(index_1 = "S&P500 ESG", index_2 = "Dow Jones Commodity Index Grains"))
+
+```
+
+## Global
+
+### Indeksy ESG
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "STOXX Global ESG Impact USD", index_2 = "GSLI"))
+```
+
+### Indeksy ESG & indeksy towarowe
+
+
+```{r echo = F}
+calc_dcc_garch(index_list = list(index_1 = "STOXX Global ESG Impact USD", index_2 = "Dow Jones Commodity Index Industrial Metals"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Global ESG Impact USD", index_2 = "Dow Jones Precious Metals Index"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Global ESG Impact USD", index_2 = "Dow Jones Commodity Index Grains"))
+calc_dcc_garch(index_list = list(index_1 = "GSLI", index_2 = "Dow Jones Commodity Index Industrial Metals"))
+calc_dcc_garch(index_list = list(index_1 = "GSLI", index_2 = "Dow Jones Precious Metals Index"))
+calc_dcc_garch(index_list = list(index_1 = "GSLI", index_2 = "Dow Jones Commodity Index Grains"))
+
+```
+
+
