@@ -1,0 +1,124 @@
+---
+title: "ESG Indices - Summary Statistics & Tests"
+author: "Daniel Cupriak"
+date: "10/12/2019"
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+fontsize: 10pt
+classoption: landscape
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tseries)
+library(propagate)
+library(normtest)
+library(FinTS)
+library(pander)
+
+options(readr.num_columns = 0) # Ignore readr messages
+"%ni%" <- Negate("%in%") # State a "not in" operator
+options(scipen=999)
+
+set.alignment('left', row.names = 'left')
+```
+
+# Summary statistics - weekly log returns
+
+```{r, echo=F, warning=F}
+set.seed(42)
+
+GSLI <- read_csv('data/resampled-properly-W/GSLI.csv') %>%
+  mutate(GSLI = log(GSLI)-log(lag(GSLI)))  %>%
+  mutate(week = str_extract(week_year, "^\\d{2}"),
+         year = str_extract(week_year, "\\d{4}$")) %>%
+    dplyr::select(-week_year) %>%
+    mutate(week_year = paste0(year, week, "5")) %>%
+    dplyr::select(-week, -year) %>%
+    mutate(week_year = as.Date(week_year, "%Y%U%u")) %>%
+    drop_na()
+
+directory <- "data/resampled-properly-W/"
+
+indices <- GSLI %>%
+  dplyr::select(week_year)
+
+for (file in list.files(directory)){
+  file_df <- read_csv(paste0(directory, file))
+  
+  file_name <- str_remove_all(file, ".csv")
+  
+  file_df <- file_df %>%
+    mutate(!!as.name(file_name) := log(!!as.name(file_name))-log(lag(!!as.name(file_name)))) %>%
+     mutate(week = str_extract(week_year, "^\\d{2}"),
+         year = str_extract(week_year, "\\d{4}$")) %>%
+    dplyr::select(-week_year) %>%
+    mutate(week_year = paste0(year, week, "5")) %>%
+    dplyr::select(-week, -year) %>%
+    mutate(week_year = as.Date(week_year, "%Y%U%u")) %>%
+    drop_na()
+  
+  indices <- indices %>%
+    left_join(file_df, by = "week_year")
+}
+
+
+indices <- indices %>%
+  drop_na()
+
+
+indices_stats <- indices %>%
+  gather(index, ret, -week_year) %>%
+  group_by(index) %>%
+  summarise("01No. of obs." = n(),
+            "02Minimum" = min(ret),
+            "03Maximum" = max(ret),
+            "04Mean" = mean(ret),
+            "05Std. dev." = sd(ret),
+            "06Skewness" = skewness(ret),
+            "07Kurtosis" = kurtosis(ret),
+            "08Jarque-Bera stat." = jb.norm.test(ret)$stat,
+            "09Jarque-Bera p-val" = jb.norm.test(ret)$p.value)
+
+
+colnames(indices_stats) <- str_remove_all(colnames(indices_stats), "^\\d{1,2}")
+
+indices_stats %>%
+  pander(digits = 4, round = 4, style = "grid", split.cells = 8)
+  
+
+
+```
+
+# Time-series tests - weekly log returns
+
+ADF - Augmented Dickey Fuller test (H0: timeseries is nonstationary)
+Ljung-Box test (H0: no autocorrelation present)
+ARCH test (H0: no ARCH effect)
+LB test (squared returns) - Ljung-Box (H0: no autocorrelation present in squared returns)
+
+```{r, echo=F, warning=F}
+set.alignment('left', row.names = 'left')
+
+indices_tests <- indices %>%
+  gather(index, ret, -week_year) %>%
+  group_by(index) %>%
+  summarise('01ADF stat' = adf.test(ret)$stat,
+            "02ADF p-val" = adf.test(ret)$p.value,
+            "03Ljung-Box stat" = Box.test(ret, type = "Ljung")$stat,
+            "04Ljung-Box p-val" = Box.test(ret, type = "Ljung")$p.value,
+            "05ARCH-test LM" = ArchTest(ret)$stat,
+            "06ARCH-test p-val" = ArchTest(ret)$p.value,
+            "07LB stat (ret^2)" = Box.test(ret^2, type = "Ljung")$stat,
+            "08LB p-val (ret^2)" = Box.test(ret^2, type = "Ljung")$p.value)
+
+colnames(indices_tests) <- str_remove_all(colnames(indices_tests), "^\\d{1,2}")
+
+indices_tests %>%
+  pander(digits =4, round =4, split.cells = 8)
+  
+```
