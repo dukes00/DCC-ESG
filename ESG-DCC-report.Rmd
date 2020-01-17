@@ -12,9 +12,7 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
 
-```{r, include = F}
 library(tidyverse)
 library(xts)
 library(rmgarch)
@@ -71,6 +69,37 @@ calc_dcc_garch <- function(index_list = list(index_1 = "example1", index_2 = "ex
   
   dcc_corr <- as.data.frame(rcor(dcc.garch11.fit)[1,2,])
   
+  dcc_sigma <- sigma(dcc.garch11.fit) %>%
+    as.data.frame()
+  
+  dcc_sigma <- dcc_sigma %>%
+    bind_cols(date = rownames(dcc_sigma)) %>%
+    as_tibble() %>%
+    `colnames<-`(c("index_1", "index_2", "date")) %>%
+    mutate(date = lubridate::ymd(date))
+  
+  dcc_sigma <<- dcc_sigma
+  
+  dcc_sigma_i1 <- dcc_sigma %>%
+    ggplot(aes(x = date, y = index_1)) +
+    geom_line() +
+    theme_classic() +
+    labs(title = index_1,
+         x = "", y = "Conditional Sigma") +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+  
+  print(dcc_sigma_i1)
+  
+  dcc_sigma_i2 <- dcc_sigma %>%
+    ggplot(aes(x = date, y = index_2)) +
+    geom_line() +
+    theme_classic() +
+    labs(title = index_2,
+         x = "", y = "Conditional Sigma") +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y")
+  
+  print(dcc_sigma_i2)
+  
   dcc_corr <- dcc_corr %>%
     bind_cols(date = rownames(dcc_corr)) %>%
     as_tibble() %>%
@@ -85,8 +114,6 @@ calc_dcc_garch <- function(index_list = list(index_1 = "example1", index_2 = "ex
          x = "", y = "Dynamic Conditional Correlation") +
     scale_x_date(date_breaks = "1 year", date_labels = "%Y")
 }
-
-
 
 ```
 
@@ -108,9 +135,9 @@ calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EU
 ### Indeksy ESG & non-ESG
 
 ```{r echo = F}
-calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "STOXX Europe Leaders NE"))
-calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EUR", index_2 = "STOXX Europe Leaders NE"))
-calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Leaders", index_2 = "STOXX Europe Leaders NE"))
+calc_dcc_garch(index_list = list(index_1 = "DJS EU", index_2 = "Euro Stoxx Select Dividend 30"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Industry Neutral ESG EUR", index_2 = "Euro Stoxx Select Dividend 30"))
+calc_dcc_garch(index_list = list(index_1 = "STOXX Europe Leaders", index_2 = "Euro Stoxx Select Dividend 30"))
 
 ```
 
